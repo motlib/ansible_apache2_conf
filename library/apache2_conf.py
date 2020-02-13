@@ -93,6 +93,7 @@ ITEM_KEY_SITE = 'site'
 SETTINGS = {
     # Configurations
     ITEM_KEY_CONFIG: {
+        'name': 'configuration',
         'query_flag': '-c',
         'enable_bin': 'a2enconf',
         'disable_bin': 'a2disconf',
@@ -100,6 +101,7 @@ SETTINGS = {
 
     # Modules
     ITEM_KEY_MODULE: {
+        'name': 'module',
         'query_flag': '-m',
         'enable_bin': 'a2enmod',
         'disable_bin': 'a2dismod',
@@ -107,11 +109,20 @@ SETTINGS = {
 
     # Sites
     ITEM_KEY_SITE: {
+        'name': 'site',
         'query_flag': '-s',
         'enable_bin': 'a2ensite',
         'disable_bin': 'a2dissite',
     },
 }
+
+
+RC_A2QUERY_ENABLED = 0
+RC_A2QUERY_NOT_FOUND = 32
+RC_A2QUERY_DISABLED = 33
+RC_A2QUERY_UNKNOWN = 1
+
+RC_A2TOOL_OK = 0
 
 
 def _run_cmd(module, cmd, params):
@@ -128,12 +139,6 @@ def _run_cmd(module, cmd, params):
     return (result, stdout, stderr)
 
 
-RC_A2QUERY_ENABLED = 0
-RC_A2QUERY_DISABLED = 33
-RC_A2QUERY_UNKNOWN = 1
-
-RC_A2TOOL_OK = 0
-
 def _get_state(module, itemcfg, name):
     '''Return the current state of an apache item.
 
@@ -147,15 +152,16 @@ def _get_state(module, itemcfg, name):
     if result == RC_A2QUERY_ENABLED:
         return True
     if result == RC_A2QUERY_UNKNOWN:
-        module.warnings.append("Item is unknown: %s" % name)
-        return False
-    if result == RC_A2QUERY_DISABLED:
+        error_msg = "%s is unknown: %s" % (itemcfg['name'], name)
+        module.fail_json(msg=error_msg)
+        return None
+    if result in (RC_A2QUERY_DISABLED, RC_A2QUERY_NOT_FOUND):
         return False
 
     error_msg = "Error executing a2query: %i %s" % (result, stderr)
     module.fail_json(msg=error_msg)
 
-    return False
+    return None
 
 def _set_state(module, itemcfg, name, state):
     '''Set the state (enabled / disabled) of an apache item.
@@ -174,7 +180,7 @@ def _set_state(module, itemcfg, name, state):
     (result, _, stderr) = _run_cmd(module, cmd, param)
 
     if result != RC_A2TOOL_OK:
-        error_msg = "Failed to execute '%s': %s" % (cmd, stderr)
+        error_msg = "Failed to execute '%s %s': %s" % (cmd, param, stderr)
         module.fail_json(msg=error_msg)
 
 
@@ -202,6 +208,7 @@ def main():
 
     cur_state = _get_state(module, itemcfg, name)
     req_state = module.params['state'] == 'present'
+
     changed_state = (cur_state != req_state)
 
     if not module.check_mode:

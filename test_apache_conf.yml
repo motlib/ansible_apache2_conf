@@ -8,32 +8,104 @@
         name: apache2
         state: present
 
-    - name: Enable existing module
+
+    - name: Enable existing module, to set up start condition
       apache2_conf:
         item: module
         name: deflate
         state: present
 
-    - name: Re-Enable existing module
+    - name: Re-Enable existing module, expect no change
       apache2_conf:
         item: module
         name: deflate
         state: present
 
-    - name: Disable existing module
+    - name: Disable existing module, expect change
       apache2_conf:
         item: module
         name: deflate
         state: absent
 
-    - name: Enable again existing module
+    - name: Enable again existing module, expect change
       apache2_conf:
         item: module
         name: deflate
         state: present
 
-    - name: Enable non-existent module
+    - name: Enable non-existent module, expected to fail
       apache2_conf:
         item: module
         name: deflatenonexist
         state: present
+      ignore_errors: yes
+
+
+    - name: Enable existing config, to set up start condition
+      apache2_conf:
+        item: config
+        name: charset
+        state: present
+
+    - name: Re-Enable existing config, expect no change
+      apache2_conf:
+        item: config
+        name: charset
+        state: present
+
+    - name: Disable existing config, expect change
+      apache2_conf:
+        item: config
+        name: charset
+        state: absent
+
+    - name: Enable again existing config, expect change
+      apache2_conf:
+        item: config
+        name: charset
+        state: present
+
+    - name: Enable non-existent config, expected to fail
+      apache2_conf:
+        item: config
+        name: charsetnonexist
+        state: present
+      ignore_errors: yes
+
+
+    - name: create dummy site
+      file:
+        state: touch
+        path: /etc/apache2/sites-available/testsite.conf
+
+
+    - name: Enable existing site, to set up start condition
+      apache2_conf:
+        item: site
+        name: testsite
+        state: present
+
+    - name: Re-Enable existing site, expect no change
+      apache2_conf:
+        item: site
+        name: testsite
+        state: present
+
+    - name: Disable existing site, expect change
+      apache2_conf:
+        item: site
+        name: testsite
+        state: absent
+
+    - name: Enable again existing site, expect change
+      apache2_conf:
+        item: site
+        name: testsite
+        state: present
+
+    - name: Enable non-existent site, expected to fail
+      apache2_conf:
+        item: site
+        name: testsitenonexist
+        state: present
+      ignore_errors: yes
