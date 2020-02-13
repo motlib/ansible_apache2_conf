@@ -1,10 +1,39 @@
 
 
-- hosts: localhost
+- hosts: testhosts
   gather_facts: no
   tasks:
-    - name: Test that my module works
-      apache_conf:
-        register: result
+    - name: Install apache2
+      package:
+        name: apache2
+        state: present
 
-    - debug: var=result
+    - name: Enable existing module
+      apache2_conf:
+        item: module
+        name: deflate
+        state: present
+
+    - name: Re-Enable existing module
+      apache2_conf:
+        item: module
+        name: deflate
+        state: present
+
+    - name: Disable existing module
+      apache2_conf:
+        item: module
+        name: deflate
+        state: absent
+
+    - name: Enable again existing module
+      apache2_conf:
+        item: module
+        name: deflate
+        state: present
+
+    - name: Enable non-existent module
+      apache2_conf:
+        item: module
+        name: deflatenonexist
+        state: present

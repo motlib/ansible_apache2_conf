@@ -4,8 +4,16 @@
 # (c) 2013-2014, Christian Berendt <berendt@b1-systems.de>
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
+'''Ansible module to enable or disable configurations, sites and modules for
+apache2.'''
+
 from __future__ import absolute_import, division, print_function
+
+# pylint: disable=invalid-name
 __metaclass__ = type
+
+# import module snippets
+from ansible.module_utils.basic import AnsibleModule
 
 
 ANSIBLE_METADATA = {'metadata_version': '0.0',
@@ -78,49 +86,35 @@ stderr:
     type: str
 '''
 
-import re
+ITEM_KEY_CONFIG = 'config'
+ITEM_KEY_MODULE = 'module'
+ITEM_KEY_SITE = 'site'
 
-# import module snippets
-from ansible.module_utils.basic import AnsibleModule
-
-
-def _get_ctl_binary(module):
-    for command in ['a2queryl', 'apachectl']:
-    ctl_binary = module.get_bin_path(command)
-        if ctl_binary is not None:
-            return ctl_binary
-
-    module.fail_json(
-        msg="Neither of apache2ctl nor apachctl found."
-            " At least one apache control binary is necessary."
-    )
-
-
-_settings = {
+SETTINGS = {
     # Configurations
-    'conf': {
+    ITEM_KEY_CONFIG: {
         'query_flag': '-c',
-        'enable_bin': 'a2enconf'
-        'disable_bin': 'a2disconf'
+        'enable_bin': 'a2enconf',
+        'disable_bin': 'a2disconf',
     },
 
     # Modules
-    'mod': {
+    ITEM_KEY_MODULE: {
         'query_flag': '-m',
-        'enable_bin': 'a2enmod'
-        'disable_bin': 'a2dismod'
+        'enable_bin': 'a2enmod',
+        'disable_bin': 'a2dismod',
     },
 
     # Sites
-    'site': {
+    ITEM_KEY_SITE: {
         'query_flag': '-s',
-        'enable_bin': 'a2ensite'
-        'disable_bin': 'a2dissite'
+        'enable_bin': 'a2ensite',
+        'disable_bin': 'a2dissite',
     },
 }
 
 
-def _run_cmd(cmd, params):
+def _run_cmd(module, cmd, params):
     cmd_bin = module.get_bin_path(cmd)
 
     # fail if a2query cannot be found
@@ -136,7 +130,7 @@ def _run_cmd(cmd, params):
 
 RC_A2QUERY_ENABLED = 0
 RC_A2QUERY_DISABLED = 33
-RC_A2QUERY_UNKNOWN = 32
+RC_A2QUERY_UNKNOWN = 1
 
 RC_A2TOOL_OK = 0
 
@@ -145,23 +139,23 @@ def _get_state(module, itemcfg, name):
 
     :returns: True if the item is enabled. False otherwise. '''
 
-    result, stdout, stderr = _run_cmd(
+    result, _, stderr = _run_cmd(
+        module,
         cmd='a2query',
         params='%s %s' % (itemcfg['query_flag'], name))
 
     if result == RC_A2QUERY_ENABLED:
         return True
-    elif result == RC_A2QUERY_UNKNOWN:
+    if result == RC_A2QUERY_UNKNOWN:
         module.warnings.append("Item is unknown: %s" % name)
         return False
-    elif result == RC_A2QUERY_DISABLED:
+    if result == RC_A2QUERY_DISABLED:
         return False
-    else:
-        error_msg = "Error executing %s: %s" % (query_bin, stderr)
-        module.fail_json(msg=error_msg)
+
+    error_msg = "Error executing a2query: %i %s" % (result, stderr)
+    module.fail_json(msg=error_msg)
 
     return False
-
 
 def _set_state(module, itemcfg, name, state):
     '''Set the state (enabled / disabled) of an apache item.
@@ -169,78 +163,31 @@ def _set_state(module, itemcfg, name, state):
     :param str name: The item to enable or disable.
     :param bool state: True to enable, False to disable.'''
 
-    cur_state = _get_state(module, name)
+    cur_state = _get_state(module, itemcfg, name)
 
     if cur_state == state:
         # nothing to do
         return
 
-    cmd = 'enable_bin' if state else 'disable_bin'
-
-    (result, stdout, stderr) = _run_cmd(cmd, name)
+    cmd = itemcfg['enable_bin'] if state else itemcfg['disable_bin']
+    param = "-q -f %s" % name
+    (result, _, stderr) = _run_cmd(module, cmd, param)
 
     if result != RC_A2TOOL_OK:
         error_msg = "Failed to execute '%s': %s" % (cmd, stderr)
         module.fail_json(msg=error_msg)
 
 
-
-#def _set_state(module, state):
-#    name = module.params['name']
-#    force = module.params['force']
-#
-#    want_enabled = state == 'present'
-#    state_string = {'present': 'enabled', 'absent': 'disabled'}[state]
-#    a2mod_binary = {'present': 'a2enmod', 'absent': 'a2dismod'}[state]
-#    success_msg = "Module %s %s" % (name, state_string)
-#
-#    if _module_is_enabled(module) != want_enabled:
-#        if module.check_mode:
-#            module.exit_json(changed=True,
-#                             result=success_msg,
-#                             warnings=module.warnings)
-#
-#        a2mod_binary = module.get_bin_path(a2mod_binary)
-#        if a2mod_binary is None:
-#            module.fail_json(msg="%s not found. Perhaps this system does not use %s to manage apache" % (a2mod_binary, a2mod_binary))
-#
-#        if not want_enabled and force:
-#            # force exists only for a2dismod on debian
-#            a2mod_binary += ' -f'
-#
-#        result, stdout, stderr = module.run_command("%s %s" % (a2mod_binary, name))
-#
-#        if _module_is_enabled(module) == want_enabled:
-#            module.exit_json(changed=True,
-#                             result=success_msg,
-#                             warnings=module.warnings)
-#        else:
-#            msg = (
-#                'Failed to set module {name} to {state}:\n'
-#                '{stdout}\n'
-#                'Maybe the module identifier ({identifier}) was guessed incorrectly.'
-#                'Consider setting the "identifier" option.'
-#            ).format(
-#                name=name,
-#                state=state_string,
-#                stdout=stdout,
-#                identifier=module.params['identifier']
-#            )
-#            module.fail_json(msg=msg,
-#                             rc=result,
-#                             stdout=stdout,
-#                             stderr=stderr)
-#    else:
-#        module.exit_json(changed=False,
-#                         result=success_msg,
-#                         warnings=module.warnings)
-
-
 def main():
+    '''Module entry point.'''
+
     module = AnsibleModule(
         argument_spec=dict(
             name=dict(required=True),
-            item=dict(required=True, choices=['module', 'config', 'site']),
+            item=dict(required=True, choices=[
+                ITEM_KEY_MODULE,
+                ITEM_KEY_CONFIG,
+                ITEM_KEY_SITE]),
             state=dict(default='present', choices=['absent', 'present']),
         ),
         supports_check_mode=True,
@@ -251,20 +198,20 @@ def main():
     name = module.params['name']
     item = module.params['item']
 
-    itemcfg = _settings[item]
+    itemcfg = SETTINGS[item]
 
-    cur_state = _get_state(module.params['name'])
-    req_state = _module.params['state'] == 'present'
+    cur_state = _get_state(module, itemcfg, name)
+    req_state = module.params['state'] == 'present'
     changed_state = (cur_state != req_state)
 
     if not module.check_mode:
         # Not in check mode. Set the state and send the response.
-        _set_state(module, name, req_state)
+        _set_state(module, itemcfg, name, req_state)
 
     success_msg = "Item %s %s" % (name, module.params['state'])
 
     module.exit_json(
-        changed=changed,
+        changed=changed_state,
         result=success_msg,
         warnings=module.warnings)
 
