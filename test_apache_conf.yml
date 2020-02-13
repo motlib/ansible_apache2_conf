@@ -1,0 +1,10 @@
+
+
+- hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Test that my module works
+      apache_conf:
+        register: result
+
+    - debug: var=result
