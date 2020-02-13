@@ -1,0 +1,2 @@
+# we always log in as root
+ansible_user: root
