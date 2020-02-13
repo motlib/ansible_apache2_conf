@@ -1,11 +1,15 @@
 #!/usr/bin/python
 # coding: utf-8 -*-
 
-# (c) 2013-2014, Christian Berendt <berendt@b1-systems.de>
-# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
+# (c) 2020, Andreas Schroeder <andreas@a-netz.de>
+# GNU General Public License v3.0+ (see COPYING or
+# https://www.gnu.org/licenses/gpl-3.0.txt)
+#
+# Inspiration taken from `apache2_module` module by
+# Christian Berendt <berendt@b1-systems.de>
 
 '''Ansible module to enable or disable configurations, sites and modules for
-apache2.'''
+Apache 2.'''
 
 from __future__ import absolute_import, division, print_function
 
@@ -20,30 +24,20 @@ ANSIBLE_METADATA = {'metadata_version': '0.0',
                     'status': ['preview'],
                     'supported_by': 'community'}
 
-
 DOCUMENTATION = '''
 ---
-module: apache2_module
-version_added: 1.6
+module: apache2_conf
+version_added: 2.9.4
 author:
-    - Christian Berendt (@berendt)
-    - Ralf Hertel (@n0trax)
-    - Robin Roth (@robinro)
-short_description: Enables/disables a configuration of the Apache2 webserver.
+    - Andreas Schroeder (@motlib)
+short_description: Enables/disables a configuration, site or module of the Apache2 webserver.
 description:
-   - Enables or disables a specified configuration of the Apache2 webserver.
+   - Enables/disables a configuration, site or module (in the following called *item*) of the Apache2 webserver.
 options:
    name:
      description:
-        - Name of the configuration to enable/disable as given to C(a2enconf/a2disconf).
+        - Name of the item to enable/disable as given to C(a2query) and C(a2en.../a2dis...) tools.
      required: true
-   identifier:
-     description:
-         - Identifier of the configuration as listed by C(apache2ctl -M).
-           This is optional and usually determined automatically by the common convention of
-           appending C(_module) to I(name) as well as custom exception for popular modules.
-     required: False
-     version_added: "2.5"
    state:
      description:
         - Desired state of the module.
@@ -55,12 +49,19 @@ requirements: ["a2query","a2enconf","a2disconf"]
 EXAMPLES = '''
 # enables the Apache2 configuration "charset"
 - apache2_conf:
-    state: present
+    item: config
     name: charset
+    state: present
 # disables the Apache2 module "wsgi"
 - apache2_conf:
-    state: absent
+    item: module
     name: charset
+    state: absent
+# enables the site "www2"
+- apache2_conf:
+    item: site
+    name: www2
+    state: present
 '''
 
 RETURN = '''
@@ -90,6 +91,7 @@ ITEM_KEY_CONFIG = 'config'
 ITEM_KEY_MODULE = 'module'
 ITEM_KEY_SITE = 'site'
 
+# Dictionary with information how to handle items (configs, modules, sites)
 SETTINGS = {
     # Configurations
     ITEM_KEY_CONFIG: {
@@ -117,6 +119,7 @@ SETTINGS = {
 }
 
 
+# Tool return codes
 RC_A2QUERY_ENABLED = 0
 RC_A2QUERY_NOT_FOUND = 32
 RC_A2QUERY_DISABLED = 33
@@ -126,6 +129,15 @@ RC_A2TOOL_OK = 0
 
 
 def _run_cmd(module, cmd, params):
+    '''Run a command. If the command is not found, fail the module with an
+    error message.
+
+    :param module: Ansible module object.
+    :param str cmd: The command (binary) to execute.
+    :param str params: String with command-line options.
+
+    :returns: Tuple of (exit code, standard output, standard error output)'''
+
     cmd_bin = module.get_bin_path(cmd)
 
     # fail if a2query cannot be found
@@ -142,7 +154,12 @@ def _run_cmd(module, cmd, params):
 def _get_state(module, itemcfg, name):
     '''Return the current state of an apache item.
 
-    :returns: True if the item is enabled. False otherwise. '''
+    :param module: Ansible module object.
+    :param itemcfg: Item configuration structure.
+    :param str name: Name of the item to query.
+
+    :returns: True if the item is enabled, False if disabled and None if the
+      item is unknown. '''
 
     result, _, stderr = _run_cmd(
         module,
@@ -152,7 +169,7 @@ def _get_state(module, itemcfg, name):
     if result == RC_A2QUERY_ENABLED:
         return True
     if result == RC_A2QUERY_UNKNOWN:
-        error_msg = "%s is unknown: %s" % (itemcfg['name'], name)
+        error_msg = "%s '%s' is unknown" % (itemcfg['name'], name)
         module.fail_json(msg=error_msg)
         return None
     if result in (RC_A2QUERY_DISABLED, RC_A2QUERY_NOT_FOUND):
@@ -163,9 +180,12 @@ def _get_state(module, itemcfg, name):
 
     return None
 
+
 def _set_state(module, itemcfg, name, state):
     '''Set the state (enabled / disabled) of an apache item.
 
+    :param module: Ansible module object.
+    :param itemcfg: Item configuration structure.
     :param str name: The item to enable or disable.
     :param bool state: True to enable, False to disable.'''
 
@@ -185,7 +205,7 @@ def _set_state(module, itemcfg, name, state):
 
 
 def main():
-    '''Module entry point.'''
+    '''Module entrypoint.'''
 
     module = AnsibleModule(
         argument_spec=dict(
@@ -206,16 +226,16 @@ def main():
 
     itemcfg = SETTINGS[item]
 
-    cur_state = _get_state(module, itemcfg, name)
     req_state = module.params['state'] == 'present'
+    cur_state = _get_state(module, itemcfg, name)
 
     changed_state = (cur_state != req_state)
 
+    # Only run _set_state if not in check mode
     if not module.check_mode:
-        # Not in check mode. Set the state and send the response.
         _set_state(module, itemcfg, name, req_state)
 
-    success_msg = "Item %s %s" % (name, module.params['state'])
+    success_msg = "%s '%s' is %s" % (itemcfg['name'], name, module.params['state'])
 
     module.exit_json(
         changed=changed_state,
