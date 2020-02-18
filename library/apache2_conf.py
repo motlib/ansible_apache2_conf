@@ -1,9 +1,21 @@
 #!/usr/bin/python
 # coding: utf-8 -*-
-
-# (c) 2020, Andreas Schroeder <andreas@a-netz.de>
-# GNU General Public License v3.0+ (see COPYING or
-# https://www.gnu.org/licenses/gpl-3.0.txt)
+#
+# apache2_conf
+# Copyright (C) 2020 Andreas Schroeder <andreas@a-netz.de>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 # Inspiration taken from `apache2_module` module by
 # Christian Berendt <berendt@b1-systems.de>
@@ -38,12 +50,18 @@ options:
      description:
         - Name of the item to enable/disable as given to C(a2query) and C(a2en.../a2dis...) tools.
      required: true
+   item:
+     description:
+        - The item to change. Either a configuration, a site or a module.
+     choices: ['config', 'module', site']
+     required: true
    state:
      description:
         - Desired state of the module.
      choices: ['present', 'absent']
      default: present
-requirements: ["a2query","a2enconf","a2disconf"]
+
+requirements: ["a2query", "a2enconf", "a2disconf", "a2enmod", "a2dismod", "a2ensite", "a2dissite"]
 '''
 
 EXAMPLES = '''
@@ -142,7 +160,7 @@ def _run_cmd(module, cmd, params):
 
     # fail if a2query cannot be found
     if cmd_bin is None:
-        error_msg = "Required command '%s' not found." % cmd
+        error_msg = "Command not found: %s" % cmd
         module.fail_json(msg=error_msg)
 
     result, stdout, stderr = module.run_command(
@@ -161,22 +179,22 @@ def _get_state(module, itemcfg, name):
     :returns: True if the item is enabled, False if disabled and None if the
       item is unknown. '''
 
-    result, _, stderr = _run_cmd(
+    rc, stdout, stderr = _run_cmd(
         module,
         cmd='a2query',
         params='%s %s' % (itemcfg['query_flag'], name))
 
-    if result == RC_A2QUERY_ENABLED:
+    if rc == RC_A2QUERY_ENABLED:
         return True
-    if result == RC_A2QUERY_UNKNOWN:
+    if rc == RC_A2QUERY_UNKNOWN:
         error_msg = "%s '%s' is unknown" % (itemcfg['name'], name)
-        module.fail_json(msg=error_msg)
+        module.fail_json(msg=error_msg, rc=rc, stdout=stdout, stderr=stderr)
         return None
-    if result in (RC_A2QUERY_DISABLED, RC_A2QUERY_NOT_FOUND):
+    if rc in (RC_A2QUERY_DISABLED, RC_A2QUERY_NOT_FOUND):
         return False
 
-    error_msg = "Error executing a2query: %i %s" % (result, stderr)
-    module.fail_json(msg=error_msg)
+    error_msg = "Error executing a2query: %i %s" % (rc, stderr)
+    module.fail_json(msg=error_msg, rc=rc, stdout=stdout, stderr=stderr)
 
     return None
 
@@ -197,11 +215,11 @@ def _set_state(module, itemcfg, name, state):
 
     cmd = itemcfg['enable_bin'] if state else itemcfg['disable_bin']
     param = "-q -f %s" % name
-    (result, _, stderr) = _run_cmd(module, cmd, param)
+    (rc, stdout, stderr) = _run_cmd(module, cmd, param)
 
-    if result != RC_A2TOOL_OK:
-        error_msg = "Failed to execute '%s %s': %s" % (cmd, param, stderr)
-        module.fail_json(msg=error_msg)
+    if rc != RC_A2TOOL_OK:
+        error_msg = "Failed to execute '%s %s'" % (cmd, param)
+        module.fail_json(msg=error_msg, rc=rc, stdout=stdout, stderr=stderr)
 
 
 def main():
@@ -239,7 +257,7 @@ def main():
 
     module.exit_json(
         changed=changed_state,
-        result=success_msg,
+        msg=success_msg,
         warnings=module.warnings)
 
 if __name__ == '__main__':
