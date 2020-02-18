@@ -89,5 +89,20 @@ apache2_conf:
   state: absent
 ```
 
+# Development
+
+You can set up the development environment by using `pipenv`. To install
+`ansible` and dependent packages, run this:
+
+```sh
+pipenv sync --dev
+```
+
+# Contributing
+
+Feedback, issues and pull requests are very welcome. Please submit anything on
+[Github].
+
 [Ansible]: https://ansible.com
 [Apache]: https://www.apache.org
+[Github]: https://github.com/motlib/ansible_apache2_conf
