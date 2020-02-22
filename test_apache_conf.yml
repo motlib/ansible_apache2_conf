@@ -16,7 +16,7 @@
     - name: Enable existing module, to set up start condition
       apache2_conf:
         item: module
-        name: deflate
+        name: ['deflate', 'alias']
         state: present
 
     - name: Re-Enable existing module, expect no change
@@ -42,6 +42,13 @@
         item: module
         name: deflatenonexist
         state: present
+      ignore_errors: yes
+
+    - name: Disable non-existent module, expected to fail
+      apache2_conf:
+        item: module
+        name: deflatenonexist
+        state: absent
       ignore_errors: yes
 
 

@@ -24,6 +24,7 @@
 Apache 2.'''
 
 from __future__ import absolute_import, division, print_function
+import re
 
 # pylint: disable=invalid-name
 __metaclass__ = type
@@ -169,6 +170,32 @@ def _run_cmd(module, cmd, params):
     return (result, stdout, stderr)
 
 
+def _get_all_states(module):
+    states = {
+        ITEM_KEY_CONFIG: [],
+        ITEM_KEY_MODULE: [],
+        ITEM_KEY_SITE: []
+    }
+
+    for item in states:
+        rc, stdout, stderr = _run_cmd(
+            module,
+            cmd='a2query',
+            params='%s' % (SETTINGS[item]['query_flag']))
+
+        if rc != 0:
+            error_msg = "Error executing a2query: %i %s" % (rc, stderr)
+            module.fail_json(msg=error_msg, rc=rc, stdout=stdout, stderr=stderr)
+
+        for line in stdout.split('\n'):
+            m = re.match(r'^(.*) \(.*\)$', line)
+            if m:
+                states[item].append(m.group(1))
+
+        states[item].sort()
+
+    return states
+
 def _get_state(module, itemcfg, name):
     '''Return the current state of an apache item.
 
@@ -207,12 +234,6 @@ def _set_state(module, itemcfg, name, state):
     :param str name: The item to enable or disable.
     :param bool state: True to enable, False to disable.'''
 
-    cur_state = _get_state(module, itemcfg, name)
-
-    if cur_state == state:
-        # nothing to do
-        return
-
     cmd = itemcfg['enable_bin'] if state else itemcfg['disable_bin']
     param = "-q -f %s" % name
     (rc, stdout, stderr) = _run_cmd(module, cmd, param)
@@ -227,7 +248,7 @@ def main():
 
     module = AnsibleModule(
         argument_spec=dict(
-            name=dict(required=True),
+            name=dict(type='list', elements='str', required=True),
             item=dict(required=True, choices=[
                 ITEM_KEY_MODULE,
                 ITEM_KEY_CONFIG,
@@ -239,26 +260,43 @@ def main():
 
     module.warnings = []
 
-    name = module.params['name']
     item = module.params['item']
-
     itemcfg = SETTINGS[item]
 
     req_state = module.params['state'] == 'present'
-    cur_state = _get_state(module, itemcfg, name)
 
-    changed_state = (cur_state != req_state)
+    states = _get_all_states(module)
 
-    # Only run _set_state if not in check mode
-    if not module.check_mode:
-        _set_state(module, itemcfg, name, req_state)
+    # Global change state
+    changed = False
 
-    success_msg = "%s '%s' is %s" % (itemcfg['name'], name, module.params['state'])
+    for name in module.params['name']:
+        cur_state = name in states[item]
+
+        changed_state = (cur_state != req_state)
+        changed |= changed_state
+
+        # Only run _set_state if not in check mode and a change is requested
+        if not module.check_mode and changed_state:
+            _set_state(module, itemcfg, name, req_state)
+
+    # retrieve all states again after modification.
+    new_states = _get_all_states(module)
+
+    success_msg = "%s %s: %s" % (
+        itemcfg['name'],
+        module.params['state'],
+        ', '.join(module.params['name'])
+    )
 
     module.exit_json(
-        changed=changed_state,
+        changed=changed,
+        diff={
+            'before': states,
+            'after': new_states},
         msg=success_msg,
-        warnings=module.warnings)
+        warnings=module.warnings,
+        **new_states)
 
 if __name__ == '__main__':
     main()
