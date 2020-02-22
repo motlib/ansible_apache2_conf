@@ -113,6 +113,22 @@
         name: testsite
         state: present
 
+    - name: Enable testsite exclusively, expect change
+      apache2_conf:
+        item: site
+        name: '000-default'
+        state: exclusive_present
+
+    - name: No items, for querying
+      apache2_conf:
+        item: site
+        name: []
+      register: info
+
+    - debug:
+        var: info.site
+
+
     - name: Enable non-existent site, expected to fail
       apache2_conf:
         item: site

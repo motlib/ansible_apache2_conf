@@ -49,7 +49,7 @@ description:
 options:
    name:
      description:
-        - Name of the item to enable/disable as given to C(a2query) and C(a2en.../a2dis...) tools.
+        - Name of the item or items to enable / disable.
      required: true
    item:
      description:
@@ -58,8 +58,8 @@ options:
      required: true
    state:
      description:
-        - Desired state of the module.
-     choices: ['present', 'absent']
+        - Desired state of the module. 'exclusive_present' only enables the listed items and disables all other items.
+     choices: ['present', 'exclusive_present', 'absent']
      default: present
 
 requirements: ["a2query", "a2enconf", "a2disconf", "a2enmod", "a2dismod", "a2ensite", "a2dissite"]
@@ -139,7 +139,7 @@ SETTINGS = {
 
 
 # Tool return codes
-RC_A2QUERY_ENABLED = 0
+RC_A2QUERY_OK = 0
 RC_A2QUERY_NOT_FOUND = 32
 RC_A2QUERY_DISABLED = 33
 RC_A2QUERY_UNKNOWN = 1
@@ -183,7 +183,11 @@ def _get_all_states(module):
             cmd='a2query',
             params='%s' % (SETTINGS[item]['query_flag']))
 
-        if rc != 0:
+        if rc == RC_A2QUERY_NOT_FOUND:
+            # 32 is returned, if no item is enabled (empty list)
+            continue
+
+        if rc != RC_A2QUERY_OK:
             error_msg = "Error executing a2query: %i %s" % (rc, stderr)
             module.fail_json(msg=error_msg, rc=rc, stdout=stdout, stderr=stderr)
 
@@ -195,35 +199,6 @@ def _get_all_states(module):
         states[item].sort()
 
     return states
-
-def _get_state(module, itemcfg, name):
-    '''Return the current state of an apache item.
-
-    :param module: Ansible module object.
-    :param itemcfg: Item configuration structure.
-    :param str name: Name of the item to query.
-
-    :returns: True if the item is enabled, False if disabled and None if the
-      item is unknown. '''
-
-    rc, stdout, stderr = _run_cmd(
-        module,
-        cmd='a2query',
-        params='%s %s' % (itemcfg['query_flag'], name))
-
-    if rc == RC_A2QUERY_ENABLED:
-        return True
-    if rc == RC_A2QUERY_UNKNOWN:
-        error_msg = "%s '%s' is unknown" % (itemcfg['name'], name)
-        module.fail_json(msg=error_msg, rc=rc, stdout=stdout, stderr=stderr)
-        return None
-    if rc in (RC_A2QUERY_DISABLED, RC_A2QUERY_NOT_FOUND):
-        return False
-
-    error_msg = "Error executing a2query: %i %s" % (rc, stderr)
-    module.fail_json(msg=error_msg, rc=rc, stdout=stdout, stderr=stderr)
-
-    return None
 
 
 def _set_state(module, itemcfg, name, state):
@@ -253,7 +228,7 @@ def main():
                 ITEM_KEY_MODULE,
                 ITEM_KEY_CONFIG,
                 ITEM_KEY_SITE]),
-            state=dict(default='present', choices=['absent', 'present']),
+            state=dict(default='present', choices=['absent', 'present', 'exclusive_present']),
         ),
         supports_check_mode=True,
     )
@@ -263,18 +238,30 @@ def main():
     item = module.params['item']
     itemcfg = SETTINGS[item]
 
-    req_state = module.params['state'] == 'present'
-
     states = _get_all_states(module)
 
-    # Global change state
-    changed = False
 
-    for name in module.params['name']:
+    # generate a dictionary with all requested state changes
+    req_states = {}
+    if module.params['state'] in ('absent', 'present'):
+        for name in module.params['name']:
+            req_states[name] = (module.params['state'] == 'present')
+    else: # module.params['state'] == 'exclusive_present':
+        # first set all items to 'absent', then overwrite for requested modules.
+        for name in states[item]:
+            req_states[name] = False
+        for name in module.params['name']:
+            req_states[name] = True
+
+
+    # Global change state
+    any_changed = False
+
+    for name, req_state in req_states.items():
         cur_state = name in states[item]
 
         changed_state = (cur_state != req_state)
-        changed |= changed_state
+        any_changed |= changed_state
 
         # Only run _set_state if not in check mode and a change is requested
         if not module.check_mode and changed_state:
@@ -290,7 +277,7 @@ def main():
     )
 
     module.exit_json(
-        changed=changed,
+        changed=any_changed,
         diff={
             'before': states,
             'after': new_states},
