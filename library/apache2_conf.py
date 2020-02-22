@@ -33,14 +33,14 @@ __metaclass__ = type
 from ansible.module_utils.basic import AnsibleModule
 
 
-ANSIBLE_METADATA = {'metadata_version': '0.0',
+ANSIBLE_METADATA = {'metadata_version': '1.1',
                     'status': ['preview'],
                     'supported_by': 'community'}
 
 DOCUMENTATION = '''
 ---
 module: apache2_conf
-version_added: 2.9.4
+version_added: '2.9.4'
 author:
     - Andreas Schroeder (@motlib)
 short_description: Enables/disables a configuration, site or module of the Apache2 webserver.
@@ -54,11 +54,14 @@ options:
    item:
      description:
         - The item to change. Either a configuration, a site or a module.
-     choices: ['config', 'module', site']
+     choices: ['config', 'module', 'site']
      required: true
    state:
      description:
-        - Desired state of the module. 'exclusive_present' only enables the listed items and disables all other items.
+        - Desired state of the module.
+        - 'absent' disables an item
+        - 'present' enables an item
+        - 'exclusive_present' enables only the listed items and disables all other items.
      choices: ['present', 'exclusive_present', 'absent']
      default: present
 
@@ -104,6 +107,18 @@ stderr:
     description: stderr of underlying command
     returned: failed
     type: str
+config:
+    description: List of all now enabled configurations.
+    returned: always
+    type: list of str
+module:
+    description: List of all now enabled modules.
+    returned: always
+    type: list of str
+site:
+    description: List of all now enabled sites.
+    returned: always
+    type: list of str
 '''
 
 ITEM_KEY_CONFIG = 'config'
@@ -144,6 +159,7 @@ RC_A2QUERY_NOT_FOUND = 32
 RC_A2QUERY_DISABLED = 33
 RC_A2QUERY_UNKNOWN = 1
 
+# return code for a2en... / a2dis...
 RC_A2TOOL_OK = 0
 
 
@@ -171,11 +187,13 @@ def _run_cmd(module, cmd, params):
 
 
 def _get_all_states(module):
-    states = {
-        ITEM_KEY_CONFIG: [],
-        ITEM_KEY_MODULE: [],
-        ITEM_KEY_SITE: []
-    }
+    '''Return a dictionary mapping the item keys to lists of enabled items.
+
+    :param module: Ansible module object.
+    :returns: dict'''
+
+    # initialize states with empty lists
+    states = {k: [] for k in SETTINGS}
 
     for item in states:
         rc, stdout, stderr = _run_cmd(
